@@ -102,8 +102,8 @@ int minigit_object_write(const minigit_repo *repo, minigit_obj_type type,
   snprintf(target_path, target_path_len, "%s/objects/%.2s/%.38s",
         repo->git_dir,
         oid_hex,
-        oid_hex + 2);  
-  if (!minigit_path_exists(target_path)) 
+        oid_hex + 2);
+  if (!minigit_path_exists(target_path))
     result = minigit_write_file(target_path, compressed, compressed_len);
   else
     result = MINIGIT_OK;  // file exists, skip write
@@ -137,7 +137,7 @@ int minigit_object_read(const minigit_repo *repo, const minigit_oid *oid,
         oid_hex,
         oid_hex + 2);
   // step 2 :read compressed data
-  if (!minigit_path_exists(target_path) || 
+  if (!minigit_path_exists(target_path) ||
       minigit_path_is_dir(target_path)) {  // file path should not be a directory
     result = MINIGIT_ERR_NOT_FOUND;
     goto cleanup;

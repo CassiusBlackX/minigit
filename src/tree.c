@@ -54,7 +54,7 @@ static int entry_cmp(const void *a, const void *b) {
   } else {
     real_eb_path = eb->name;
   }
-   
+
   int result = strcmp(real_ea_path, real_eb_path);
   if (ea_is_dir) free(real_ea_path);
   if (eb_is_dir) free(real_eb_path);
