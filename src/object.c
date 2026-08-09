@@ -1,4 +1,5 @@
 #include "minigit/object.h"
+#include "minigit/common.h"
 #include "minigit/compress.h"
 #include "minigit/fsutil.h"
 #include "minigit/sha1.h"
@@ -24,6 +25,15 @@ int minigit_obj_type_from_name(const char *name, minigit_obj_type *out_type) {
     return MINIGIT_ERR_INVALID;
 }
 
+static const char* oid_to_hex(const minigit_oid *oid) {
+  static char hex[41] = {};
+  for (size_t i = 0; i < 20; i++) {
+    snprintf(hex + 2 * i, 3, "%02x", oid->id[i]);
+  }
+  hex[40] = '\0';
+  return hex;
+}
+
 /* ---------------------------------------------------------------------
  * TODO(你来实现)
  *
@@ -36,22 +46,14 @@ int minigit_obj_type_from_name(const char *name, minigit_obj_type *out_type) {
 
 int minigit_object_hash(minigit_obj_type type, const void *data, size_t size,
                          minigit_oid *out_oid) {
-    (void)type;
-    (void)data;
-    (void)size;
-    (void)out_oid;
-    return MINIGIT_ERR_NOT_IMPLEMENTED;
-}
+  char *header = NULL;
+  unsigned char *store = NULL;
+  int result = MINIGIT_OK;
 
-int minigit_object_write(const minigit_repo *repo, minigit_obj_type type,
-                          const void *data, size_t size, minigit_oid *out_oid) {
-  char *header = NULL, *target_path = NULL;
-  void *store = NULL;
-  unsigned char *compressed = NULL;
-
-  // step 1: generate 'header'
+  // step 1: generate `header`
   int header_len = snprintf(NULL, 0, "%s %zu", minigit_obj_type_name(type), size);
-  header = malloc(header_len + 1);
+  header_len++;  // add the '\0' into the len count
+  header = malloc(header_len);
   snprintf(header, header_len, "%s %zu", minigit_obj_type_name(type), size);
   header[header_len - 1] = '\0';
   // step 2: generate 'store'
@@ -59,26 +61,60 @@ int minigit_object_write(const minigit_repo *repo, minigit_obj_type type,
   store = realloc(header, store_len);
   memcpy(store + header_len, data, size);
   // step 3: sha1 for 'store'
-  if (!out_oid)  // FIXME: dont know if `out_oid` is a valid pointer
-    out_oid = malloc(sizeof(*out_oid));
+  if (!out_oid) {
+    result = MINIGIT_ERR;
+    goto cleanup;
+  }
+  minigit_sha1_buffer(store, store_len, out_oid);
+
+cleanup:
+  free(store);
+  return result;
+}
+
+int minigit_object_write(const minigit_repo *repo, minigit_obj_type type,
+                          const void *data, size_t size, minigit_oid *out_oid) {
+  char *header = NULL, *target_path = NULL;
+  void *store = NULL;
+  unsigned char *compressed = NULL;
+  int result = MINIGIT_OK;
+
+  // step 1: generate 'header'
+  int header_len = snprintf(NULL, 0, "%s %zu", minigit_obj_type_name(type), size);
+  header_len++;  // add the '\0' into the len count
+  header = malloc(header_len);
+  snprintf(header, header_len, "%s %zu", minigit_obj_type_name(type), size);
+  header[header_len - 1] = '\0';
+  // step 2: generate 'store'
+  size_t store_len = header_len + size;
+  store = realloc(header, store_len);
+  memcpy(store + header_len, data, size);
+  // step 3: sha1 for 'store'
+  if (!out_oid) {
+    result = MINIGIT_ERR;
+    goto cleanup;
+  }
   minigit_sha1_buffer(store, store_len, out_oid);
   // step 4: compress 'store' using zlib
   size_t compressed_len = 0;
-  int result = minigit_compress(store, store_len, &compressed, &compressed_len);
+  result = minigit_compress(store, store_len, &compressed, &compressed_len);
   if (result != MINIGIT_OK) goto cleanup;
   // step 5: write compressed to a file
-  int target_path_len = snprintf(NULL, 0, "%s/objects/%x/%s",
+  const char *oid_hex = oid_to_hex(out_oid);
+  int target_path_len = snprintf(NULL, 0, "%s/objects/%.2s/%.38s",
         repo->git_dir,
-        out_oid->id[0],
-        out_oid->id + 1
-      );
+        oid_hex,
+        oid_hex + 2);
+  target_path_len++;
   target_path = malloc(target_path_len);
-  snprintf(target_path, target_path_len, "%s/objects/%x/%s",
+  snprintf(target_path, target_path_len, "%s/objects/%.2s/%.38s",
         repo->git_dir,
-        out_oid->id[0],
-        out_oid->id + 1);
-  if (minigit_path_exists(target_path)) return MINIGIT_OK;
-  result = minigit_write_file(target_path, compressed, compressed_len);
+        oid_hex,
+        oid_hex + 2);  
+  if (!minigit_path_exists(target_path)) 
+    result = minigit_write_file(target_path, compressed, compressed_len);
+  else
+    result = MINIGIT_OK;  // file exists, skip write
 
 cleanup:
   if (store) free(store);
@@ -90,10 +126,78 @@ cleanup:
 
 int minigit_object_read(const minigit_repo *repo, const minigit_oid *oid,
                          minigit_object *out) {
-    (void)repo;
-    (void)oid;
-    (void)out;
-    return MINIGIT_ERR_NOT_IMPLEMENTED;
+  char *target_path = NULL, *header = NULL;
+  unsigned char *compressed = NULL, *decompressed = NULL;
+  int result = MINIGIT_ERR;
+  if (!out) return result;
+
+  // step 1 : generate target_path
+  const char *oid_hex = oid_to_hex(oid);
+  int target_path_len = snprintf(NULL, 0, "%s/objects/%.2s/%.38s",
+        repo->git_dir,
+        oid_hex,
+        oid_hex + 2);
+  target_path_len++;
+  target_path = malloc(target_path_len);
+  snprintf(target_path, target_path_len, "%s/objects/%.2s/%.38s",
+        repo->git_dir,
+        oid_hex,
+        oid_hex + 2);
+  // step 2 :read compressed data
+  if (!minigit_path_exists(target_path) || 
+      minigit_path_is_dir(target_path)) {  // file path should not be a directory
+    result = MINIGIT_ERR_NOT_FOUND;
+    goto cleanup;
+  }
+  size_t compressed_len;
+  result = minigit_read_file(target_path, &compressed, &compressed_len);
+  if (result != MINIGIT_OK) goto cleanup;
+  // step 3 : decompress to get 'store'
+  size_t decompressed_len;
+  result = minigit_decompress(compressed, compressed_len, &decompressed, &decompressed_len);
+  if (result != MINIGIT_OK) goto cleanup;
+  // step 4: restore header
+  //   restore type
+  char type_name[7] = {};
+  size_t header_idx;
+  for (header_idx = 0; header_idx <= 6; header_idx++) {
+    if (header_idx == decompressed_len) {
+      result = MINIGIT_ERR_INVALID;
+      goto cleanup;
+    }
+    if (decompressed[header_idx] == ' ') {
+      type_name[header_idx] = '\0';
+      header_idx++;  // pass the ' '
+      break;
+    }
+    type_name[header_idx] = decompressed[header_idx];
+  }
+  result = minigit_obj_type_from_name(type_name, &(out->type));
+  if (result != MINIGIT_OK) return result;
+  //   size
+  char size_char[64] = {};  // FIXME: how long should the array be?
+  int i = 0;
+  while (decompressed[header_idx] != '\0' && header_idx < decompressed_len) {
+    size_char[i++] = decompressed[header_idx++];
+  }
+  size_char[i] = '\0';
+  out->size = atoi(size_char);
+  if (out->size != decompressed_len - header_idx - 1) {
+    result = MINIGIT_ERR_INVALID;
+    goto cleanup;
+  }
+  // step 5: copy content to out->data
+  unsigned char * p = decompressed + header_idx + 1;
+  out->data = malloc(out->size);
+  memcpy(out->data, p, out->size);
+  result = MINIGIT_OK;
+
+cleanup:
+  if (target_path) free(target_path);
+  if (header) free(header);
+  if (compressed) free(compressed);
+  if (decompressed) free(decompressed);
+  return result;
 }
 
 void minigit_object_free(minigit_object *obj) {
