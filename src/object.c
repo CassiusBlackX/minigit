@@ -25,15 +25,6 @@ int minigit_obj_type_from_name(const char *name, minigit_obj_type *out_type) {
     return MINIGIT_ERR_INVALID;
 }
 
-static const char* oid_to_hex(const minigit_oid *oid) {
-  static char hex[41] = {};
-  for (size_t i = 0; i < 20; i++) {
-    snprintf(hex + 2 * i, 3, "%02x", oid->id[i]);
-  }
-  hex[40] = '\0';
-  return hex;
-}
-
 /* ---------------------------------------------------------------------
  * TODO(你来实现)
  *
@@ -100,7 +91,8 @@ int minigit_object_write(const minigit_repo *repo, minigit_obj_type type,
   result = minigit_compress(store, store_len, &compressed, &compressed_len);
   if (result != MINIGIT_OK) goto cleanup;
   // step 5: write compressed to a file
-  const char *oid_hex = oid_to_hex(out_oid);
+  char oid_hex[MINIGIT_OID_HEXSZ + 1];
+  minigit_oid_to_hex(out_oid, oid_hex);
   int target_path_len = snprintf(NULL, 0, "%s/objects/%.2s/%.38s",
         repo->git_dir,
         oid_hex,
@@ -132,7 +124,8 @@ int minigit_object_read(const minigit_repo *repo, const minigit_oid *oid,
   if (!out) return result;
 
   // step 1 : generate target_path
-  const char *oid_hex = oid_to_hex(oid);
+  char oid_hex[MINIGIT_OID_HEXSZ + 1];
+  minigit_oid_to_hex(oid, oid_hex);
   int target_path_len = snprintf(NULL, 0, "%s/objects/%.2s/%.38s",
         repo->git_dir,
         oid_hex,
