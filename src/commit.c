@@ -69,13 +69,13 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
   while (data[idx] != ' ')
     idx++; // skip 'tree'
   char tree_str[5];
-  strncpy(tree_str, (const char *)data, 4);
+  memcpy(tree_str, (const char *)data, 4);
   tree_str[4] = '\0';
   if (strcmp(tree_str, "tree") != 0)
     return MINIGIT_ERR_INVALID;
   idx++; // skip  ' '
   char tree_oid_hex[MINIGIT_OID_HEXSZ + 1];
-  strncpy(tree_oid_hex, (const char *)data + idx, MINIGIT_OID_HEXSZ);
+  memcpy(tree_oid_hex, (const char *)data + idx, MINIGIT_OID_HEXSZ);
   tree_oid_hex[MINIGIT_OID_HEXSZ] = '\0';
   minigit_oid_from_hex(tree_oid_hex, &out_commit->tree);
   idx += MINIGIT_OID_HEXSZ; // skip oid hex
@@ -85,14 +85,14 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
   dynamic_arr parents = {};
   for (;;) {
     char line_title[7]; // strlen("parent") + 1
-    strncpy(line_title, (const char *)data + idx, 6);
+    memcpy(line_title, (const char *)data + idx, 6);
     line_title[6] = '\0';
     if (strcmp(line_title, "parent") != 0)
       break;
     idx += 7; // skip 'parent '
 
     char parent_oid_hex[MINIGIT_OID_HEXSZ + 1];
-    strncpy(parent_oid_hex, (const char *)data + idx, MINIGIT_OID_HEXSZ);
+    memcpy(parent_oid_hex, (const char *)data + idx, MINIGIT_OID_HEXSZ);
     parent_oid_hex[MINIGIT_OID_HEXSZ] = '\0';
     minigit_oid parent = {};
     minigit_oid_from_hex(parent_oid_hex, &parent);
@@ -105,7 +105,7 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
 
   // looking for author
   char author_title[7]; // strlen("author") + 1
-  strncpy(author_title, (const char *)data + idx, 6);
+  memcpy(author_title, (const char *)data + idx, 6);
   author_title[6] = '\0';
   if (strcmp(author_title, "author") != 0)
     return MINIGIT_ERR_INVALID;
@@ -116,14 +116,14 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
     idx++;
   size_t author_msg_len = idx - author_start_idx + 1;
   out_commit->author = malloc(author_msg_len);
-  strncpy(out_commit->author, (const char *)data + author_start_idx,
+  memcpy(out_commit->author, (const char *)data + author_start_idx,
           author_msg_len - 1);
   out_commit->author[author_msg_len - 1] = '\0';
   idx++; // skip '\n'
 
   // looking for committer
   char committer_title[10]; // strlen("committer") + 1
-  strncpy(committer_title, (const char *)data + idx, 9);
+  memcpy(committer_title, (const char *)data + idx, 9);
   committer_title[9] = '\0';
   if (strcmp(committer_title, "committer") != 0)
     return MINIGIT_ERR_INVALID;
@@ -134,7 +134,7 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
     idx++;
   size_t committer_msg_len = idx - committer_start_idx + 1;
   out_commit->committer = malloc(committer_msg_len);
-  strncpy(out_commit->committer, (const char *)data + committer_start_idx,
+  memcpy(out_commit->committer, (const char *)data + committer_start_idx,
           committer_msg_len - 1);
   out_commit->committer[committer_msg_len - 1] = '\0';
   idx++;
@@ -143,7 +143,7 @@ int minigit_commit_parse(const unsigned char *data, size_t size,
   // commit msg
   size_t msg_len = size - idx;
   out_commit->message = malloc(msg_len + 1);
-  strncpy(out_commit->message, (const char*)data + idx, msg_len);
+  memcpy(out_commit->message, (const char*)data + idx, msg_len);
   out_commit->message[msg_len] = '\0';
 
   return MINIGIT_OK;

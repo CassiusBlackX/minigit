@@ -40,7 +40,7 @@ static int entry_cmp(const void *a, const void *b) {
   char *real_ea_path = NULL, *real_eb_path = NULL;
   if (ea_is_dir) {
     real_ea_path = malloc(strlen(ea->name) + 2);
-    strncpy(real_ea_path, ea->name, strlen(ea->name) + 1);
+    memcpy(real_ea_path, ea->name, strlen(ea->name) + 1);
     real_ea_path[strlen(ea->name)] = '/';
     real_ea_path[strlen(ea->name) + 1] = '\0';
   } else {
@@ -48,7 +48,7 @@ static int entry_cmp(const void *a, const void *b) {
   }
   if (eb_is_dir) {
     real_eb_path = malloc(strlen(eb->name) + 2);
-    strncpy(real_eb_path, eb->name, strlen(eb->name) + 1);
+    memcpy(real_eb_path, eb->name, strlen(eb->name) + 1);
     real_eb_path[strlen(eb->name)] = '/';
     real_eb_path[strlen(eb->name) + 1] = '\0';
   } else {

@@ -34,14 +34,6 @@ static unsigned int str_to_mode(const char *mode_str) {
   return 0;
 }
 
-static inline bool str_contain_char(const char *str, char c) {
-  for (size_t i = 0; i < strlen(str); i++) {
-    if (str[i] == c)
-      return true;
-  }
-  return false;
-}
-
 #define index_da_append(mindex, item)                                          \
   do {                                                                         \
     if (mindex->count >= mindex->capacity) {                                   \
@@ -214,7 +206,8 @@ int minigit_index_add(minigit_index *index, const char *path, unsigned int mode,
       memcpy(&new_entry.oid, oid, sizeof(*oid));
       size_t path_len = strlen(path);
       new_entry.path = malloc(path_len + 1);
-      strncpy(new_entry.path, path, path_len);
+      memcpy(new_entry.path, path, path_len);
+      new_entry.path[path_len] = '\0';
 
       index_da_insert(index, new_entry, i);
       return MINIGIT_OK;
@@ -226,7 +219,8 @@ int minigit_index_add(minigit_index *index, const char *path, unsigned int mode,
   memcpy(&new_entry.oid, oid, sizeof(*oid));
   size_t path_len = strlen(path);
   new_entry.path = malloc(path_len + 1);
-  strncpy(new_entry.path, path, path_len);
+  memcpy(new_entry.path, path, path_len);
+  new_entry.path[path_len] = '\0';
   index_da_append(index, new_entry);
   return MINIGIT_OK;
 }
@@ -261,7 +255,7 @@ static size_t group_end(const minigit_index_entry *entries, size_t count,
   if (!first_slash)
     return 0; // already file, not dir
   char *new_prefix = malloc(first_slash - entries[0].path - prefix_len + 1);
-  strncpy(new_prefix, entries[0].path + prefix_len,
+  memcpy(new_prefix, entries[0].path + prefix_len,
           first_slash - entries[0].path - prefix_len);
   new_prefix[first_slash - entries[0].path - prefix_len] = '\0';
   size_t return_val = 0;
@@ -274,7 +268,7 @@ static size_t group_end(const minigit_index_entry *entries, size_t count,
     }
 
     char *cur_prefix = malloc(new_slash - entries[i].path - prefix_len + 1);
-    strncpy(cur_prefix, entries[i].path + prefix_len,
+    memcpy(cur_prefix, entries[i].path + prefix_len,
             new_slash - entries[i].path - prefix_len);
     cur_prefix[new_slash - entries[i].path - prefix_len] = '\0';
     if (strcmp(new_prefix, cur_prefix) != 0) {
