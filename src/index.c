@@ -7,6 +7,7 @@
 #include "minigit/tree.h"
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,6 +32,14 @@ static unsigned int str_to_mode(const char *mode_str) {
   if (strcmp("40000", mode_str) == 0)
     return MINIGIT_MODE_TREE;
   return 0;
+}
+
+static inline bool str_contain_char(const char *str, char c) {
+  for (size_t i = 0; i < strlen(str); i++) {
+    if (str[i] == c)
+      return true;
+  }
+  return false;
 }
 
 #define index_da_append(mindex, item)                                          \
@@ -63,11 +72,29 @@ static unsigned int str_to_mode(const char *mode_str) {
     mindex->count++;                                                           \
   } while (0)
 
-int entry_cmp(const void *a, const void *b) {
+static int entry_cmp(const void *a, const void *b) {
   const minigit_index_entry *ea = (const minigit_index_entry *)a;
   const minigit_index_entry *eb = (const minigit_index_entry *)b;
   return strcmp(ea->path, eb->path);
 }
+
+typedef struct {
+  minigit_tree_entry *items;
+  size_t count;
+  size_t capacity;
+} tree_entries;
+#define tree_entries_append(da_arr, item)                                      \
+  do {                                                                         \
+    if (da_arr.count >= da_arr.capacity) {                                     \
+      if (da_arr.capacity == 0)                                                \
+        da_arr.capacity = 256;                                                 \
+      else                                                                     \
+        da_arr.capacity *= 2;                                                  \
+      da_arr.items =                                                           \
+          realloc(da_arr.items, da_arr.capacity * sizeof(*da_arr.items));      \
+    }                                                                          \
+    da_arr.items[da_arr.count++] = item;                                       \
+  } while (0)
 
 /* TODO(你来实现)：见 index.h 顶部的格式说明与 write_tree 的算法提示 */
 
@@ -176,8 +203,8 @@ int minigit_index_add(minigit_index *index, const char *path, unsigned int mode,
     minigit_index_entry entry = index->entries[i];
     // path exists, only update mode/oid
     if (strcmp(entry.path, path) == 0) {
-      entry.mode = mode;
-      memcpy(&entry.oid, oid, sizeof(*oid));
+      index->entries[i].mode = mode;
+      memcpy(&index->entries[i].oid, oid, sizeof(*oid));
       return MINIGIT_OK;
     }
 
@@ -228,13 +255,100 @@ minigit_index_entry *minigit_index_find(const minigit_index *index,
   return NULL;
 }
 
+static size_t group_end(const minigit_index_entry *entries, size_t count,
+                        size_t prefix_len) {
+  char *first_slash = strchr(entries[0].path + prefix_len, '/');
+  if (!first_slash)
+    return 0; // already file, not dir
+  char *new_prefix = malloc(first_slash - entries[0].path - prefix_len + 1);
+  strncpy(new_prefix, entries[0].path + prefix_len,
+          first_slash - entries[0].path - prefix_len);
+  new_prefix[first_slash - entries[0].path - prefix_len] = '\0';
+  size_t return_val = 0;
+  for (size_t i = 1; i < count; i++) {
+    char *new_slash = strchr(entries[i].path + prefix_len, '/');
+    if (!new_slash) {
+      // no more same prefix, entries[i] is anothor new file
+      return_val = i;
+      goto cleanup;
+    }
+
+    char *cur_prefix = malloc(new_slash - entries[i].path - prefix_len + 1);
+    strncpy(cur_prefix, entries[i].path + prefix_len,
+            new_slash - entries[i].path - prefix_len);
+    cur_prefix[new_slash - entries[i].path - prefix_len] = '\0';
+    if (strcmp(new_prefix, cur_prefix) != 0) {
+      // found group end, break
+      return_val = i;
+      free(cur_prefix);
+      goto cleanup;
+    }
+    free(cur_prefix);
+  }
+  return_val = count;
+
+cleanup:
+  free(new_prefix);
+  return return_val;
+}
+
+static int build_tree(const minigit_repo *repo,
+                      const minigit_index_entry *entries, size_t count,
+                      size_t prefix_len, minigit_oid *out_oid) {
+  int status = MINIGIT_OK;
+  unsigned char *tree_data = NULL;
+  tree_entries tents = {};
+  for (size_t i = 0; i < count;) {
+    size_t g = group_end(entries + i, count - i, prefix_len);
+    minigit_index_entry ient = entries[i];
+    if (g == 0) {  // no subdir, is a file
+      minigit_tree_entry tent = {
+        .mode = ient.mode,
+        .oid = ient.oid,
+      };
+      tent.name = malloc(strlen(ient.path + prefix_len) + 1);
+      memcpy(tent.name, ient.path +prefix_len, strlen(ient.path + prefix_len));
+      tent.name[strlen(ient.path + prefix_len)] = '\0';
+      tree_entries_append(tents, tent);
+      i++;
+    } else {  // subdir, recursive build_tree
+      char *first_slash = strchr(ient.path + prefix_len, '/');
+      minigit_oid sub_oid = {};
+      status = build_tree(repo, entries + i, g, first_slash - ient.path + 1, &sub_oid);
+      if (status != MINIGIT_OK) goto cleanup;
+      minigit_tree_entry tent = {
+        .mode = MINIGIT_MODE_TREE,
+        .oid = sub_oid,
+      };
+      tent.name = malloc(first_slash - ient.path - prefix_len + 1);
+      memcpy(tent.name, ient.path + prefix_len, first_slash - ient.path - prefix_len);
+      tent.name[first_slash - ient.path - prefix_len] = '\0';
+      tree_entries_append(tents, tent);
+      i += g;
+    }
+  }
+
+  minigit_tree tree = {
+      .entries = tents.items,
+      .count = tents.count,
+  };
+  size_t tree_size = 0;
+  status = minigit_tree_serialize(&tree, &tree_data, &tree_size);
+  if (status != MINIGIT_OK)
+    goto cleanup;
+  status = minigit_object_write(repo, MINIGIT_OBJ_TREE, tree_data, tree_size,
+                                out_oid);
+
+cleanup:
+  free(tree_data);
+  minigit_tree_free(&tree);
+  return status;
+}
+
 int minigit_index_write_tree(const minigit_repo *repo,
                              const minigit_index *index,
                              minigit_oid *out_tree_oid) {
-  (void)repo;
-  (void)index;
-  (void)out_tree_oid;
-  return MINIGIT_ERR_NOT_IMPLEMENTED;
+  return build_tree(repo, index->entries, index->count, 0, out_tree_oid);
 }
 
 void minigit_index_free(minigit_index *index) {
