@@ -54,6 +54,7 @@ add_library(minigit_core STATIC
   src/sha1.c
   src/compress.c
   src/fsutil.c
+  src/dynamic_arr.c
   src/repo.c
   src/object.c
   src/tree.c
