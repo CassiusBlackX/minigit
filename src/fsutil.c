@@ -2,9 +2,12 @@
  * fsutil.c — 已完整实现，直接使用。
  */
 #include "minigit/fsutil.h"
+#include "minigit/common.h"
+#include "minigit/refs.h"
 
 #include <dirent.h>
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -205,4 +208,61 @@ int minigit_walk_files(const char *root, minigit_walk_fn cb, void *userdata) {
         return MINIGIT_ERR_INVALID;
     }
     return walk_recursive(root, "", cb, userdata);
+}
+
+int minigit_list_files(const char *dir_path, char ***out_names, size_t *out_count) {
+  if (dir_path == NULL || out_names == NULL || out_count == NULL) return MINIGIT_ERR_INVALID;
+
+  DIR *dir = opendir(dir_path);
+  if (dir == NULL) return MINIGIT_ERR_NOT_FOUND;
+
+  size_t count = 0;
+  size_t capacity = 16;
+  char **names = malloc(capacity * sizeof(char*));
+  int rc = MINIGIT_OK;
+  struct dirent *ent;
+
+  while ((ent = readdir(dir)) != NULL) {
+    if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+
+    /* only files, skip subdirectory */
+    char *full_path = minigit_path_join(dir_path, ent->d_name);
+    if (full_path == NULL) {
+      rc = MINIGIT_ERR;
+      break;
+    }
+    int is_dir = minigit_path_is_dir(full_path);
+    free(full_path);
+    if (is_dir) continue;
+
+    if (count >= capacity) {
+      capacity *= 2;
+      char **new_names = realloc(names, capacity * sizeof(char*));
+      if (new_names == NULL) {
+        rc = MINIGIT_ERR;
+        break;
+      }
+      names = new_names;
+    }
+
+    names[count] = strdup(ent->d_name);
+    if (names[count] == NULL) {
+      rc = MINIGIT_ERR;
+      break;
+    }
+    count++;
+  }
+  closedir(dir);
+
+  if (rc != MINIGIT_OK) {
+    for (size_t i = 0; i < count; i++) {
+      free(names[i]);
+    }
+    free(names);
+    return rc;
+  }
+
+  *out_names = names;
+  *out_count = count;
+  return MINIGIT_OK;
 }

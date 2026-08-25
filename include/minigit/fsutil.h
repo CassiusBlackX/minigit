@@ -48,6 +48,11 @@ char *minigit_path_join(const char *a, const char *b);
 typedef int (*minigit_walk_fn)(const char *relpath, void *userdata);
 int minigit_walk_files(const char *root, minigit_walk_fn cb, void *userdata);
 
+/* new added function, list file under given directory 
+ * only used when a directory has no subdir, or else will skip subdir
+ */
+int minigit_list_files(const char *dir_path, char ***out_names, size_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif
